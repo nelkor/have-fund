@@ -17,10 +17,10 @@ contract Token is ERC20Permit, Ownable {
         tokenURI = initialTokenURI;
     }
 
-    function setTokenURI(string memory newTokenURI) external onlyOwner {
-        tokenURI = newTokenURI;
+    function setTokenURI(string memory uri) external onlyOwner {
+        tokenURI = uri;
 
-        emit TokenURIChanged(newTokenURI);
+        emit TokenURIChanged(uri);
     }
 
     function mint(address to, uint256 amount) external onlyOwner {
