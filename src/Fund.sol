@@ -23,19 +23,20 @@ contract Fund is Ownable {
     IDollar public dollar;
     IFundToken public immutable fundToken;
 
-    event Opened();
     event Closed();
-    event dollarChanged(address oldDollar, address newDollar);
+    event Opened(uint128 price);
+    event DollarChanged(address newDollar);
     event Sold(address indexed seller, uint256 token, uint256 dollar);
     event Bought(address indexed buyer, uint256 dollar, uint256 token);
 
     constructor(
-        address initialToken,
+        address nativeToken,
         address initialDollar
     ) Ownable(msg.sender) {
         dollar = IDollar(initialDollar);
-        fundToken = IFundToken(initialToken);
+        fundToken = IFundToken(nativeToken);
 
+        price = 0;
         isOpen = false;
         _firstTokenMinted = false;
     }
@@ -48,16 +49,29 @@ contract Fund is Ownable {
         fundToken.mint(address(this), 10 ** 18);
     }
 
+    // Любые erc20-токены, которые отправляют на адрес фонда,
+    // можно изъять путём назначения их адреса текущим долларом.
+    // Однако, с токеном фонда этот способ не сработает.
+    // В случае застревания токенов фонда на адресе фонда их можно сжечь,
+    // сохранив на адресе тот самый первый выпущенный токен.
+    function burnSurplus() external onlyOwner {
+        uint256 surplus = fundToken.balanceOf(address(this)) - 10 ** 18;
+
+        require(!isOpen);
+        require(surplus > 0);
+
+        fundToken.burn(msg.sender, surplus);
+    }
+
     function setDollar(address newDollar) external onlyOwner {
         require(!isOpen);
         require(newDollar != address(fundToken));
+        // У долларов decimals может быть разным, но не более 18.
         require(IDollar(newDollar).decimals() <= 18);
-
-        address oldDollar = address(dollar);
 
         dollar = IDollar(newDollar);
 
-        emit dollarChanged(oldDollar, newDollar);
+        emit DollarChanged(newDollar);
     }
 
     function setTokenURI(string calldata uri) external onlyOwner {
@@ -72,28 +86,43 @@ contract Fund is Ownable {
 
         require(dollarBalance > 0);
 
+        // Приводим количество долларов к сумме с 18 decimals.
         uint256 scaledDollarBalance =
             (dollarBalance * 10 ** (18 - dollar.decimals()));
 
         isOpen = true;
-        price = uint128(scaledDollarBalance / fundToken.totalSupply());
 
-        emit Opened();
+        // Здесь суммы в долларах и в акциях имеют 18 decimals.
+        // Если их просто поделить друг на друга, то у цены будет 0 decimals.
+        // Чтобы цена была с 18 decimals, умножаем делимое на 1e18.
+        price =
+            uint128((scaledDollarBalance * 10 ** 18) / fundToken.totalSupply());
+
+        emit Opened(price);
     }
 
     function close() external onlyOwner {
         require(isOpen);
 
-        price = 0;
         isOpen = false;
+
+        dollar.transfer(owner(), dollar.balanceOf(address(this)));
 
         emit Closed();
     }
 
-    function withdraw(uint256 amount) external onlyOwner {
+    function withdraw() external onlyOwner {
         require(!isOpen);
 
-        dollar.transfer(owner(), amount);
+        dollar.transfer(owner(), dollar.balanceOf(address(this)));
+    }
+
+    function sacrifice(uint256 fundTokenAmount) external onlyOwner {
+        // Имеет смысл жертвовать только в закрытом состоянии фонда,
+        // так как это увеличит цену токена после следующего открытия.
+        require(!isOpen);
+
+        fundToken.burn(msg.sender, fundTokenAmount);
     }
 
     function buy(uint256 dollarAmount) external {
@@ -101,7 +130,13 @@ contract Fund is Ownable {
         require(dollarAmount > 0);
         require(dollar.transferFrom(msg.sender, address(this), dollarAmount));
 
-        uint256 fundTokenAmount = (dollarAmount * 10 ** 18) / price;
+        // Приводим количество долларов к сумме с 18 decimals.
+        uint256 scaledDollarAmount =
+            (dollarAmount * 10 ** (18 - dollar.decimals()));
+
+        // Поскольку происходит деление на цену с 18 decimals,
+        // делимое должно компенсировать это 18 лишними младшими разрядами.
+        uint256 fundTokenAmount = (scaledDollarAmount * 10 ** 18) / price;
 
         fundToken.mint(msg.sender, fundTokenAmount);
 
@@ -112,7 +147,18 @@ contract Fund is Ownable {
         require(isOpen);
         require(fundTokenAmount > 0);
 
-        uint256 dollarAmount = (fundTokenAmount * price) / 10 ** 18;
+        // Вычисляя количество долларов за токены фонда по текущей цене,
+        // получаем сумму, уже приведённую к 18 decimals.
+        uint256 scaledDollarAmount = (fundTokenAmount * price) / 10 ** 18;
+
+        // Чтобы отправить правильное количество долларов,
+        // надо привести эту сумму к родному decimals токена доллара.
+        uint256 dollarAmount =
+            (scaledDollarAmount / 10 ** (18 - dollar.decimals()));
+
+        // Если у доллара меньше 18 decimals,
+        // слишком маленькое количество токенов фонда будет приводиться к нулю.
+        require(dollarAmount > 0);
 
         dollar.transfer(msg.sender, dollarAmount);
         fundToken.burn(msg.sender, fundTokenAmount);
