@@ -12,7 +12,6 @@ interface IFundToken is IERC20 {
     function decimals() external view returns (uint8);
     function mint(address to, uint256 amount) external;
     function burn(address from, uint256 amount) external;
-    function setTokenURI(string calldata newURI) external;
 }
 
 contract Fund is Ownable {
@@ -74,10 +73,6 @@ contract Fund is Ownable {
         emit DollarChanged(newDollar);
     }
 
-    function setTokenURI(string calldata uri) external onlyOwner {
-        fundToken.setTokenURI(uri);
-    }
-
     function open() external onlyOwner {
         require(!isOpen);
         require(_firstTokenMinted);
@@ -90,13 +85,18 @@ contract Fund is Ownable {
         uint256 scaledDollarBalance =
             (dollarBalance * 10 ** (18 - dollar.decimals()));
 
-        isOpen = true;
-
         // Здесь суммы в долларах и в акциях имеют 18 decimals.
         // Если их просто поделить друг на друга, то у цены будет 0 decimals.
         // Чтобы цена была с 18 decimals, умножаем делимое на 1e18.
-        price =
+        uint128 newPrice =
             uint128((scaledDollarBalance * 10 ** 18) / fundToken.totalSupply());
+
+        // Защита от краха фонда,
+        // вызванного открытием с ничтожным количеством долларов на счету.
+        require(newPrice > price);
+
+        isOpen = true;
+        price = newPrice;
 
         emit Opened(price);
     }
