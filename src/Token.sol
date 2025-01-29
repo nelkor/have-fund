@@ -5,23 +5,8 @@ import '@openzeppelin/contracts/access/Ownable.sol';
 import '@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol';
 
 contract Token is ERC20Permit, Ownable {
-    string public tokenURI;
-
-    event TokenURIChanged(string newTokenURI);
-
-    constructor(
-        string memory name,
-        string memory symbol,
-        string memory initialTokenURI
-    ) ERC20(name, symbol) ERC20Permit(name) Ownable(msg.sender) {
-        tokenURI = initialTokenURI;
-    }
-
-    function setTokenURI(string memory uri) external onlyOwner {
-        tokenURI = uri;
-
-        emit TokenURIChanged(uri);
-    }
+    constructor(string memory name, string memory symbol)
+    ERC20(name, symbol) ERC20Permit(name) Ownable(msg.sender) {}
 
     function mint(address to, uint256 amount) external onlyOwner {
         _mint(to, amount);
