@@ -59,7 +59,7 @@ contract Fund is Ownable {
         require(!isOpen);
         require(surplus > 0);
 
-        fundToken.burn(msg.sender, surplus);
+        fundToken.burn(address(this), surplus);
     }
 
     function setDollar(address newDollar) external onlyOwner {
@@ -160,8 +160,8 @@ contract Fund is Ownable {
         // слишком маленькое количество токенов фонда будет приводиться к нулю.
         require(dollarAmount > 0);
 
-        dollar.transfer(msg.sender, dollarAmount);
         fundToken.burn(msg.sender, fundTokenAmount);
+        dollar.transfer(msg.sender, dollarAmount);
 
         emit Sold(msg.sender, fundTokenAmount, dollarAmount);
     }
